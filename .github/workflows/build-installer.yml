@@ -1,0 +1,77 @@
+name: Build Calculator Windows Installer
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
+
+jobs:
+  build-windows-installer:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Calculator.exe
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --icon installer/Calculator.ico --name Calculator app.py
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/Calculator.exe")) { throw "Calculator.exe was not created." }
+          $size = (Get-Item "dist/Calculator.exe").Length
+          if ($size -lt 1000000) { throw "Calculator.exe is unexpectedly small." }
+          Write-Host "Calculator.exe size: $size bytes"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler was not found." }
+
+      - name: Build Calculator Setup.exe
+        shell: pwsh
+        run: |
+          & "$iscc" "installer\Calculator.iss"
+          if (!(Test-Path "installer\Output\Calculator Setup.exe")) {
+            throw "Calculator Setup.exe was not created."
+          }
+          $size = (Get-Item "installer\Output\Calculator Setup.exe").Length
+          if ($size -lt 1000000) { throw "Installer is unexpectedly small." }
+          Write-Host "Calculator Setup.exe size: $size bytes"
+
+      - name: Upload Calculator Setup.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: Calculator-Setup-Windows
+          path: installer/Output/Calculator Setup.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload portable Calculator.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: Calculator-Windows
+          path: dist/Calculator.exe
+          if-no-files-found: error
+          retention-days: 30
