@@ -1,0 +1,48 @@
+name: Build Calculator.exe
+
+on:
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Calculator.exe
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name Calculator app.py
+
+      - name: Smoke test package contents
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/Calculator.exe")) { throw "Calculator.exe was not created." }
+          $size = (Get-Item "dist/Calculator.exe").Length
+          if ($size -lt 1000000) { throw "Calculator.exe is unexpectedly small." }
+          Write-Host "Calculator.exe size: $size bytes"
+
+      - name: Upload Calculator.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: Calculator-Windows
+          path: dist/Calculator.exe
+          if-no-files-found: error
+          retention-days: 30
